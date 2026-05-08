@@ -146,7 +146,7 @@ caller ──→ bin/claude wrapper ──→ CLAUDE_TAP_ACTIVE=1 ?
 | Role | Implemented by | Responsibility |
 |---|---|---|
 | **Producer** (wrapper + hook process) | claude-tap | Inject hooks, write `events.jsonl`, attempt socket on `PermissionRequest`. |
-| **Event consumer** | Any process tailing `events.jsonl` (inotify-based push) | Subscribe and react to events. Multiple concurrent consumers are fine; each tails independently. |
+| **Event consumer** | Any process tailing `events.jsonl` (v0.1: 100 ms poll; v0.2 may switch to inotify push) | Subscribe and react to events. Multiple concurrent consumers are fine; each tails independently. |
 | **Decision listener** | One process bound to `decision.sock` at a time | Answer `PermissionRequest` events. Optional. |
 
 ### Invariants
@@ -395,7 +395,7 @@ The Python package installs **two** console_scripts:
 |---|---|
 | `claude-tap install` | Write `~/.claude-tap/bin/claude` (chmod +x). Idempotent. |
 | `claude-tap uninstall` | Remove `~/.claude-tap/bin/`. Leaves `events.jsonl` alone (audit trail). |
-| `claude-tap watch` | Subscribe to `events.jsonl` (inotify-backed, push). Pretty-print one line per event. |
+| `claude-tap watch` | Subscribe to `events.jsonl` (v0.1: 100 ms poll; pretty-printed one line per event). |
 | `claude-tap watch --json` | Same, but raw `events.jsonl` lines (pipe-friendly). |
 | `claude-tap bridge --stdio` | Bind `decision.sock`. For each request, print to stdout and read decision from stdin. Manual decision authority for testing. |
 | `claude-tap bridge --auto allow` | Bind `decision.sock`, automatically allow every request. **Testing only.** |
@@ -409,7 +409,7 @@ For consumers integrating in-process. Exposed at top level of the
 ```python
 from claude_tap import EventStream, DecisionListener
 
-# Event subscription. Internally inotify-based; presents as async iterator.
+# Event subscription. v0.1 polls at 100 ms; presents as async iterator.
 async for event in EventStream():
     handle(event)
 
@@ -421,7 +421,7 @@ async with DecisionListener() as listener:
 ```
 
 Consumers that just want to tail the file can also do so directly with
-any inotify or `tail -f`-based mechanism; the API helpers are
+`tail -f` or any file-watching mechanism; the API helpers are
 ergonomic, not required.
 
 ## Configuration
@@ -533,9 +533,9 @@ GUI dialog, LLM judge, ...).
 #!/usr/bin/env python3
 """Reference consumer for claude-tap.
 
-Subscribes to events (via inotify-backed EventStream — looks like
-push, no manual tail) and binds decision.sock to answer
-PermissionRequests interactively from stdin.
+Subscribes to events (via EventStream — looks like push, no manual
+tail) and binds decision.sock to answer PermissionRequests
+interactively from stdin.
 
 Copy this file as a starting point for your own consumer
 (Telegram bot, chat backend, GUI, ...).
@@ -551,9 +551,10 @@ from claude_tap import EventStream, DecisionListener
 async def watch_events() -> None:
     """Print every event as it arrives.
 
-    EventStream is an async iterator. Internally it uses inotify on
-    events.jsonl, so consumption is push-based with sub-millisecond
-    latency. From the consumer's perspective, it is just `async for`.
+    EventStream is an async iterator. v0.1 polls events.jsonl at 100 ms
+    intervals; latency is bounded by that interval. v0.2 may switch to
+    inotify-backed push. From the consumer's perspective, it is always
+    just `async for`.
     """
     async for event in EventStream():
         et = event["event_type"]
