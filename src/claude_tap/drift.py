@@ -76,12 +76,18 @@ _EXPECTED: dict[str, dict[str, set[str]]] = {
     },
     "Notification": {
         # Empirical: real stdin contains `message`, not `notification_message`.
+        # `notification_type` does appear sometimes (newer Claude Code may
+        # add it alongside `message`), so it's optional rather than absent.
         "required": _COMMON_REQUIRED | {"message"},
-        "optional": _COMMON_OPTIONAL,
+        "optional": _COMMON_OPTIONAL | {"notification_type"},
     },
     "Stop": {
+        # Empirical: Stop's stdin includes `last_assistant_message` (the
+        # final assistant text of the turn). `response` is the docs name;
+        # we keep both as optional in case different versions emit either.
         "required": _COMMON_REQUIRED,
-        "optional": _COMMON_OPTIONAL | {"stop_hook_active", "response"},
+        "optional": _COMMON_OPTIONAL
+        | {"stop_hook_active", "response", "last_assistant_message"},
     },
     "SessionEnd": {
         # Empirical: real stdin contains `reason`, not `end_reason`.
