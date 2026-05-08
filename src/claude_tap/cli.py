@@ -42,7 +42,7 @@ def _pretty(event: dict) -> str:
     win = tmux.get("window_id", "-")
     payload = event.get("payload", {})
     if et == "user_prompt_submit":
-        summary = payload.get("prompt", "")[:60]
+        summary = json.dumps(payload.get("prompt", ""), ensure_ascii=False)[1:-1][:60]
     elif et in ("pre_tool_use", "post_tool_use"):
         ti = payload.get("tool_input", {})
         ti_str = json.dumps(ti, ensure_ascii=False)[:50]
