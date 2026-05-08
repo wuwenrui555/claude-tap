@@ -78,6 +78,21 @@ which Claude treats as "no opinion → fall through to default behavior".
 For `PermissionRequest`, the default is the in-pane TUI prompt — so
 the local user keeps full control. **`{}` never means "deny".**
 
+### Hook-contract gaps
+
+Some session events are not surfaced as hooks by Claude Code, so
+claude-tap cannot emit them no matter how faithful the wrapper is:
+
+- **User-initiated `Esc` interrupts emit no `Stop` event.** Claude
+  Code's `Stop` hook fires only when a turn ends naturally (Claude
+  finished responding). When the user presses `Esc` to abort a turn
+  in progress, the turn is cancelled externally and `Stop` is
+  skipped. Consumers that rely on `Stop` as the "turn ended" signal
+  will see state hang in `Working` until either the next
+  `UserPromptSubmit` arrives or they consult an out-of-band signal
+  (e.g. parsing the pane via
+  [claude-code-state](https://github.com/wuwenrui555/claude-code-state)).
+
 ## Schema drift detection
 
 Every hook invocation runs a best-effort schema check against the
