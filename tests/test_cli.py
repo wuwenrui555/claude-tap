@@ -7,7 +7,13 @@ import time
 
 import pytest
 
-from claude_tap.cli import build_parser, cmd_install, cmd_uninstall, cmd_version
+from claude_tap.cli import (
+    build_parser,
+    cmd_drift,
+    cmd_install,
+    cmd_uninstall,
+    cmd_version,
+)
 from claude_tap.config import wrapper_path
 
 
@@ -39,6 +45,48 @@ def test_uninstall_removes_wrapper(isolated_tap_dir):
 def test_uninstall_when_not_installed(isolated_tap_dir):
     rc = cmd_uninstall(_Args())
     assert rc == 0
+
+
+def test_drift_no_log(isolated_tap_dir, capsys):
+    """`claude-tap drift` with no drift.log present says so."""
+    args = _Args()
+    args.raw = False
+    rc = cmd_drift(args)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "No drift detected" in out
+
+
+def test_drift_summary(isolated_tap_dir, capsys):
+    """`claude-tap drift` summarizes by (event, kind, field)."""
+    log = isolated_tap_dir / "drift.log"
+    log.write_text(
+        "2026-05-08T10:00:00+00:00 | SessionEnd | MISSING | end_reason | seen=1\n"
+        "2026-05-08T11:00:00+00:00 | SessionEnd | MISSING | end_reason | seen=1\n"
+        "2026-05-08T12:00:00+00:00 | PreToolUse | UNKNOWN | new_field | seen=1\n"
+    )
+    args = _Args()
+    args.raw = False
+    rc = cmd_drift(args)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "2 unique drift anomalies" in out
+    assert "MISSING" in out
+    assert "end_reason" in out
+    assert "count=2" in out  # SessionEnd|MISSING|end_reason appears twice
+    assert "count=1" in out  # PreToolUse|UNKNOWN|new_field appears once
+
+
+def test_drift_raw(isolated_tap_dir, capsys):
+    """`claude-tap drift --raw` prints the file verbatim."""
+    log = isolated_tap_dir / "drift.log"
+    body = "2026-05-08T10:00:00+00:00 | SessionEnd | MISSING | end_reason | seen=1\n"
+    log.write_text(body)
+    args = _Args()
+    args.raw = True
+    rc = cmd_drift(args)
+    assert rc == 0
+    assert capsys.readouterr().out == body
 
 
 def test_version_prints(capsys):

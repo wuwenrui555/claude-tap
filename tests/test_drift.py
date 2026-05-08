@@ -196,6 +196,40 @@ def test_session_end_with_old_reason_field_flags_drift(isolated_tap_dir):
     assert any("UNKNOWN | reason" in line for line in lines), lines
 
 
+def test_dedup_persists_across_simulated_process_restart(isolated_tap_dir):
+    """A fresh process must read drift.log and skip already-logged keys.
+
+    Simulates the real production case: claude-tap-hook is invoked as
+    a fresh subprocess for every Claude hook fire. Without persistence,
+    drift.log would grow by one line per (anomaly × hook fire), which
+    quickly drowns the signal.
+    """
+    raw = {
+        "session_id": "s",
+        "transcript_path": "/t.jsonl",
+        "cwd": "/c",
+        "hook_event_name": "SessionStart",
+        "future_field": "x",
+    }
+    drift.check("SessionStart", raw)
+    assert len(_drift_log_lines(isolated_tap_dir)) == 1
+
+    # Simulate brand-new process: in-memory cache cleared, will reload
+    # from drift.log on next check.
+    drift.reset_dedup(reload_from_disk=True)
+
+    drift.check("SessionStart", raw)
+    drift.check("SessionStart", raw)
+    # Still exactly one line — the persistent dedup caught both retries.
+    assert len(_drift_log_lines(isolated_tap_dir)) == 1
+
+
+def test_drift_log_path_public_accessor():
+    """Public accessor must expose the canonical path."""
+    p = drift.drift_log_path()
+    assert p.name == "drift.log"
+
+
 def test_notification_required_fields(isolated_tap_dir):
     """Notification requires notification_type + notification_message."""
     raw = {

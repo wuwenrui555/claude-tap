@@ -8,7 +8,7 @@ import json
 import sys
 from typing import Any
 
-from . import __version__
+from . import __version__, drift
 from .config import wrapper_path
 from .listener import DecisionListener
 from .stream import EventStream
@@ -133,6 +133,58 @@ def cmd_bridge(args) -> int:
         return 0
 
 
+def cmd_drift(args) -> int:
+    """Show schema-drift anomalies recorded in drift.log.
+
+    By default summarizes (one line per unique anomaly + first/last
+    timestamps + count). With ``--raw`` prints drift.log verbatim.
+    """
+    path = drift.drift_log_path()
+    if not path.exists():
+        print(f"No drift detected. ({path} does not exist.)")
+        return 0
+    content = path.read_text(encoding="utf-8")
+    if not content.strip():
+        print(f"No drift detected. ({path} is empty.)")
+        return 0
+
+    if args.raw:
+        sys.stdout.write(content)
+        return 0
+
+    # Summarize: dedupe by (event, kind, field), track first/last/count.
+    summary: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for line in content.splitlines():
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) < 4:
+            continue
+        ts, event, kind, field = parts[0], parts[1], parts[2], parts[3]
+        key = (event, kind, field)
+        s = summary.setdefault(key, {"first": ts, "last": ts, "count": 0})
+        s["last"] = ts
+        s["count"] += 1
+
+    if not summary:
+        print(f"No drift detected. ({path} has no parseable entries.)")
+        return 0
+
+    print(f"{len(summary)} unique drift anomalies in {path}:\n")
+    width_kind = max(len(k[1]) for k in summary)
+    width_event = max(len(k[0]) for k in summary)
+    width_field = max(len(k[2]) for k in summary)
+    for event, kind, field in sorted(summary):
+        s = summary[(event, kind, field)]
+        print(
+            f"  {kind:<{width_kind}}  {event:<{width_event}}  "
+            f"{field:<{width_field}}  count={s['count']}  "
+            f"first={s['first']}  last={s['last']}"
+        )
+    print(
+        f"\nTo investigate: docs/verifying-hook-contract.md\nTo reset:       rm {path}"
+    )
+    return 0
+
+
 def cmd_version(args) -> int:
     print(__version__)
     return 0
@@ -163,6 +215,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--auto", choices=["allow", "deny"], help="Auto-decide (testing)"
     )
     p_bridge.set_defaults(fn=cmd_bridge)
+
+    p_drift = sub.add_parser(
+        "drift", help="Summarize schema-drift anomalies from drift.log"
+    )
+    p_drift.add_argument(
+        "--raw", action="store_true", help="Print drift.log verbatim (no summary)"
+    )
+    p_drift.set_defaults(fn=cmd_drift)
 
     sub.add_parser("version", help="Print package version").set_defaults(fn=cmd_version)
 
