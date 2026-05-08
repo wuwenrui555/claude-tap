@@ -67,12 +67,17 @@ def extract_payload(event_name: str, raw: dict[str, Any]) -> dict[str, Any]:
             "tool_response": raw.get("tool_response", {}),
         }
     if event_name == "Notification":
-        return {
-            "notification_type": raw.get("notification_type", ""),
-            "notification_message": raw.get("notification_message", ""),
-        }
+        # Verified empirically against Claude Code 2.1.136 on 2026-05-08:
+        # the actual stdin field is `message`, NOT `notification_message`.
+        # The official docs at code.claude.com/docs/en/hooks document
+        # `notification_type` + `notification_message`, but no shipped
+        # version uses those names — drift detection caught this.
+        # See docs/verifying-hook-contract.md.
+        return {"message": raw.get("message", "")}
     if event_name == "SessionEnd":
-        return {"end_reason": raw.get("end_reason", "")}
+        # Verified empirically: the actual field is `reason`, NOT
+        # `end_reason` as documented. Same docs/reality mismatch.
+        return {"reason": raw.get("reason", "")}
     if event_name == "PermissionRequest":
         return {
             "request_id": "",  # filled in by run()

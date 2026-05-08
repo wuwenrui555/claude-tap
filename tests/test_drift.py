@@ -167,33 +167,39 @@ def test_real_2026_05_08_payload_no_drift(isolated_tap_dir):
     assert _drift_log_lines(isolated_tap_dir) == []
 
 
-def test_session_end_uses_end_reason(isolated_tap_dir):
-    """SessionEnd's required field is end_reason, not reason."""
+def test_session_end_uses_reason(isolated_tap_dir):
+    """SessionEnd's required field is `reason` (empirical, 2026-05-08).
+
+    Note: the official docs claim `end_reason`, but real Claude Code
+    2.1.136 sends `reason`. Drift detection caught this on first live
+    run; we follow reality, not docs.
+    """
     raw = {
         "session_id": "s",
         "transcript_path": "/t.jsonl",
         "cwd": "/c",
         "hook_event_name": "SessionEnd",
-        "end_reason": "logout",
+        "reason": "logout",
     }
     drift.check("SessionEnd", raw)
     assert _drift_log_lines(isolated_tap_dir) == []
 
 
-def test_session_end_with_old_reason_field_flags_drift(isolated_tap_dir):
-    """If a future Claude release renamed back to 'reason', drift should
-    flag both: MISSING end_reason and UNKNOWN reason."""
+def test_session_end_with_docs_field_flags_drift(isolated_tap_dir):
+    """If Claude ever adopts the documented `end_reason`, drift should
+    flag both MISSING reason and UNKNOWN end_reason — that's our
+    signal to update the schema to match new reality."""
     raw = {
         "session_id": "s",
         "transcript_path": "/t.jsonl",
         "cwd": "/c",
         "hook_event_name": "SessionEnd",
-        "reason": "logout",  # the old (wrong) field name
+        "end_reason": "logout",  # the field name docs claim
     }
     drift.check("SessionEnd", raw)
     lines = _drift_log_lines(isolated_tap_dir)
-    assert any("MISSING | end_reason" in line for line in lines), lines
-    assert any("UNKNOWN | reason" in line for line in lines), lines
+    assert any("MISSING | reason" in line for line in lines), lines
+    assert any("UNKNOWN | end_reason" in line for line in lines), lines
 
 
 def test_dedup_persists_across_simulated_process_restart(isolated_tap_dir):
@@ -231,14 +237,18 @@ def test_drift_log_path_public_accessor():
 
 
 def test_notification_required_fields(isolated_tap_dir):
-    """Notification requires notification_type + notification_message."""
+    """Notification requires `message` (empirical, 2026-05-08).
+
+    Same docs/reality mismatch as SessionEnd: docs say
+    `notification_type` + `notification_message`, real Claude Code
+    sends only `message`. Drift caught it on first run.
+    """
     raw = {
         "session_id": "s",
         "transcript_path": "/t.jsonl",
         "cwd": "/c",
         "hook_event_name": "Notification",
-        "notification_type": "permission_prompt",
-        "notification_message": "Claude needs input",
+        "message": "Claude needs input",
     }
     drift.check("Notification", raw)
     assert _drift_log_lines(isolated_tap_dir) == []

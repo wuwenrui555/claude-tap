@@ -9,9 +9,11 @@ uses for each hook. That contract changes occasionally — fields get
 renamed, new optional fields appear, decision-output formats evolve.
 This document walks the loop we use to keep the contract pinned.
 
-The example throughout uses the 2026-05-08 update where we discovered
-two field-name bugs (`SessionEnd` → `end_reason`, `Notification` →
-`notification_message`) by following exactly these steps.
+A worked example from the day this doc was written lives in
+[Case study: 2026-05-08](#case-study-2026-05-08--when-the-docs-were-wrong)
+at the bottom — a real run where the official docs disagreed with
+the running Claude Code in two places, and the drift detector caught
+it on first live use.
 
 ## The four-step loop
 
@@ -66,39 +68,23 @@ Two places encode our understanding of the hook contract:
 | `src/claude_tap/drift.py` (`_EXPECTED`) | Per-event sets of required + optional stdin field names |
 | `src/claude_tap/hook.py` (`extract_payload`) | Per-event field-by-field extraction into our payload |
 
-A drift between docs and these files is a bug. Walk every event we
-support (8 in v0.1: `SessionStart`, `UserPromptSubmit`, `PreToolUse`,
-`PostToolUse`, `Notification`, `Stop`, `SessionEnd`,
-`PermissionRequest`) and confirm:
+Walk every event we support (8 in v0.1: `SessionStart`,
+`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`,
+`Stop`, `SessionEnd`, `PermissionRequest`) and ask three questions
+about each:
 
-1. **Every required field in docs is `required` in `_EXPECTED`** (and
-   we extract it in `hook.py`)
-2. **Every optional field in docs is at least `optional` in `_EXPECTED`**
-3. **No field name we hardcode in `extract_payload` is missing from
-   docs** — that means we're reading a phantom field
+1. **Required fields**: every required field in docs is also in our
+   `required` set, and we extract it in `hook.py`.
+2. **Optional fields**: every optional field in docs is at least in
+   our `optional` set, so drift won't flag it as `UNKNOWN`.
+3. **Phantom fields**: no field name we hardcode in `extract_payload`
+   is absent from docs — otherwise we're reading something that
+   doesn't exist.
 
-Real example (the 2026-05-08 fix):
-
-```diff
- # hook.py:extract_payload
--    if event_name == "SessionEnd":
--        return {"reason": raw.get("reason", "")}
-+    if event_name == "SessionEnd":
-+        return {"end_reason": raw.get("end_reason", "")}
-
- # drift.py:_EXPECTED
-     "SessionEnd": {
--        "required": _COMMON_REQUIRED,
--        "optional": _COMMON_OPTIONAL | {"reason"},
-+        "required": _COMMON_REQUIRED | {"end_reason"},
-+        "optional": _COMMON_OPTIONAL,
-     },
-```
-
-Docs called the field `end_reason`; we were reading `reason`. The
-field was always empty in produced events — a silent data-loss bug
-that drift detection would have caught at runtime once it actually
-fired.
+But — and this is the entire point of the rest of this document —
+**docs may be wrong**. Don't commit a schema change motivated purely
+by docs without confirming the field actually appears in real
+hook stdin (Step 3 below).
 
 ## Step 3: Smoke-test ambiguous stdout control fields
 
@@ -207,10 +193,11 @@ Run the suite:
 .venv/bin/ruff format --check src/ tests/ examples/
 ```
 
-Commit with a message that names the verification source:
+Commit with a message that names the verification source — and
+specifically calls out **empirical** if your finding overrode docs:
 
 ```bash
-git commit -m "fix: SessionEnd uses end_reason (verified against docs 2026-05-08)"
+git commit -m "fix(drift): SessionEnd uses 'reason' (empirical 2026-05-08; docs wrong)"
 ```
 
 ## When to re-run this loop
@@ -236,18 +223,70 @@ git commit -m "fix: SessionEnd uses end_reason (verified against docs 2026-05-08
 ## A note on trust
 
 The docs are accurate at the time we read them, but they are not
-infallible. Two failure modes you should expect:
+infallible. Three failure modes you should expect:
 
 1. **Documentation lag** — a Claude Code release ships before its
-   docs page reflects the change. Step 3 (smoke test) is the only way
-   to catch this. We have hit it once already (the
-   `permissionDecision` vs `decision.behavior` confusion was rooted
-   in the user's existing `PreToolUse` hook conventions, which were
-   accurate but for a different event).
+   docs page reflects the change. Step 3 (smoke test) is the only
+   way to catch this. We hit this with `permissionDecision` vs
+   `decision.behavior` (different events, different fields, both
+   valid — but the docs hadn't disambiguated cleanly).
 2. **Implementation lag** — docs describe a planned shape, and the
    shipped code hasn't caught up. Step 3 catches this too.
+3. **Documentation just wrong** — the docs page describes fields
+   that no shipped version actually uses. Step 2 (schema diff) plus
+   running the drift detector against a live session catches this.
 
 The drift detector is the long-running version of this loop: it
 flags surprises in real time once Step 4 has codified our
 expectations. Treat its `drift.log` as a TODO list of contract
 divergences to investigate.
+
+## Case study: 2026-05-08 — when the docs were wrong
+
+The first live run of `claude-tap` against Claude Code 2.1.136
+(the latest release at that time) produced 7 drift entries within
+seconds. Three categories:
+
+**1. Docs/reality mismatch (the docs were wrong)**
+
+| Event | Docs claim | Reality |
+|---|---|---|
+| `SessionEnd` | `end_reason` (required) | `reason` |
+| `Notification` | `notification_type` + `notification_message` (required) | only `message` |
+
+We had earlier "fixed" `hook.py` and `drift.py` to follow the docs,
+trusting `code.claude.com/docs/en/hooks`. The drift module on first
+real run reported MISSING for the docs-named fields and UNKNOWN for
+the actual fields — i.e., **our schema disagreed with reality in
+both directions at once**, the cleanest possible signal that we'd
+gone the wrong way.
+
+CHANGELOG inspection confirmed there had been **no rename** between
+the originally-correct names (`reason`, `message`) and the docs
+claim. The docs page simply has an error; either it was written
+ahead of a planned rename that never shipped, or it's a typo in the
+field names. We reverted to the empirical names and added test
+fixtures asserting the real schema.
+
+**2. Schema gaps (we were missing optional fields)**
+
+Real `PreToolUse`, `PostToolUse`, and `PermissionRequest` payloads
+include `tool_use_id` (string). `PostToolUse` additionally includes
+`duration_ms`. We don't extract these into our event payload, but
+they are **expected** in claude's stdin, so they belong in the
+`optional` set so drift doesn't keep flagging them. Added.
+
+**3. Confirmed correct**
+
+`PermissionRequest` `permission_suggestions` (which we already had
+in optional) appeared with rich `addRules`-style content that
+matches the docs. So it's not all wrong — just two specific events.
+
+**Lesson for future maintenance**
+
+When a `_EXPECTED` change is motivated **purely by docs** (no live
+observation), pair it with a smoke test against a real session
+*before* committing. Better yet: run drift in a smoke session,
+confirm `drift.log` stays empty, *then* trust the schema.
+
+The empirical observation is canonical. Docs are a hypothesis.

@@ -34,27 +34,27 @@ def test_extract_payload_pre_tool_use():
 
 
 def test_extract_payload_notification():
-    """Notification uses notification_type / notification_message (NOT 'message').
+    """Notification uses `message` (NOT `notification_message`).
 
-    See docs/verifying-hook-contract.md for how this field name was
-    confirmed against the official Claude Code hook docs.
+    Verified empirically against Claude Code 2.1.136 on 2026-05-08:
+    real stdin had `message`, no `notification_*` fields. The official
+    docs at code.claude.com/docs/en/hooks claim otherwise — the docs
+    are wrong (see docs/verifying-hook-contract.md).
     """
-    raw = {
-        "notification_type": "permission_prompt",
-        "notification_message": "Claude needs your input",
-    }
+    raw = {"message": "Claude needs your input"}
     p = extract_payload("Notification", raw)
-    assert p == {
-        "notification_type": "permission_prompt",
-        "notification_message": "Claude needs your input",
-    }
+    assert p == {"message": "Claude needs your input"}
 
 
 def test_extract_payload_session_end():
-    """SessionEnd uses end_reason (NOT 'reason')."""
-    raw = {"end_reason": "logout"}
+    """SessionEnd uses `reason` (NOT `end_reason`).
+
+    Same empirical override as Notification: docs say `end_reason`,
+    real Claude Code 2.1.136 sends `reason`.
+    """
+    raw = {"reason": "logout"}
     p = extract_payload("SessionEnd", raw)
-    assert p == {"end_reason": "logout"}
+    assert p == {"reason": "logout"}
 
 
 def test_extract_payload_permission_request_request_id_blank():

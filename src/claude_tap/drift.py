@@ -42,8 +42,20 @@ from .config import claude_tap_dir
 # `optional` = fields we know about but tolerate not seeing. Anything
 #              outside the union of these two sets logs as UNKNOWN.
 
+# Schemas verified empirically against Claude Code 2.1.136 on 2026-05-08.
+# Source: actual hook stdin captured during a live session (drift.log
+# round-trip). Where this contradicts the official docs at
+# code.claude.com/docs/en/hooks (e.g., docs claim SessionEnd uses
+# `end_reason` and Notification uses `notification_message`/
+# `notification_type`), the empirical observation wins. See
+# docs/verifying-hook-contract.md for the maintenance loop.
+
 _COMMON_REQUIRED = {"session_id", "transcript_path", "cwd", "hook_event_name"}
 _COMMON_OPTIONAL = {"permission_mode", "effort"}
+
+# Tool-related hooks consistently include tool_use_id; PostToolUse also
+# includes duration_ms. Both are observed but we don't extract them.
+_TOOL_OPTIONAL = {"tool_use_id"}
 
 _EXPECTED: dict[str, dict[str, set[str]]] = {
     "SessionStart": {
@@ -56,14 +68,15 @@ _EXPECTED: dict[str, dict[str, set[str]]] = {
     },
     "PreToolUse": {
         "required": _COMMON_REQUIRED | {"tool_name", "tool_input"},
-        "optional": _COMMON_OPTIONAL,
+        "optional": _COMMON_OPTIONAL | _TOOL_OPTIONAL,
     },
     "PostToolUse": {
         "required": _COMMON_REQUIRED | {"tool_name", "tool_input", "tool_response"},
-        "optional": _COMMON_OPTIONAL,
+        "optional": _COMMON_OPTIONAL | _TOOL_OPTIONAL | {"duration_ms"},
     },
     "Notification": {
-        "required": _COMMON_REQUIRED | {"notification_type", "notification_message"},
+        # Empirical: real stdin contains `message`, not `notification_message`.
+        "required": _COMMON_REQUIRED | {"message"},
         "optional": _COMMON_OPTIONAL,
     },
     "Stop": {
@@ -71,12 +84,13 @@ _EXPECTED: dict[str, dict[str, set[str]]] = {
         "optional": _COMMON_OPTIONAL | {"stop_hook_active", "response"},
     },
     "SessionEnd": {
-        "required": _COMMON_REQUIRED | {"end_reason"},
+        # Empirical: real stdin contains `reason`, not `end_reason`.
+        "required": _COMMON_REQUIRED | {"reason"},
         "optional": _COMMON_OPTIONAL,
     },
     "PermissionRequest": {
         "required": _COMMON_REQUIRED | {"tool_name", "tool_input"},
-        "optional": _COMMON_OPTIONAL | {"permission_suggestions"},
+        "optional": _COMMON_OPTIONAL | _TOOL_OPTIONAL | {"permission_suggestions"},
     },
 }
 
