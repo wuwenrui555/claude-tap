@@ -67,9 +67,12 @@ def extract_payload(event_name: str, raw: dict[str, Any]) -> dict[str, Any]:
             "tool_response": raw.get("tool_response", {}),
         }
     if event_name == "Notification":
-        return {"message": raw.get("message", "")}
+        return {
+            "notification_type": raw.get("notification_type", ""),
+            "notification_message": raw.get("notification_message", ""),
+        }
     if event_name == "SessionEnd":
-        return {"reason": raw.get("reason", "")}
+        return {"end_reason": raw.get("end_reason", "")}
     if event_name == "PermissionRequest":
         return {
             "request_id": "",  # filled in by run()

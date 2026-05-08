@@ -33,6 +33,30 @@ def test_extract_payload_pre_tool_use():
     assert p == {"tool_name": "Bash", "tool_input": {"command": "ls"}}
 
 
+def test_extract_payload_notification():
+    """Notification uses notification_type / notification_message (NOT 'message').
+
+    See docs/verifying-hook-contract.md for how this field name was
+    confirmed against the official Claude Code hook docs.
+    """
+    raw = {
+        "notification_type": "permission_prompt",
+        "notification_message": "Claude needs your input",
+    }
+    p = extract_payload("Notification", raw)
+    assert p == {
+        "notification_type": "permission_prompt",
+        "notification_message": "Claude needs your input",
+    }
+
+
+def test_extract_payload_session_end():
+    """SessionEnd uses end_reason (NOT 'reason')."""
+    raw = {"end_reason": "logout"}
+    p = extract_payload("SessionEnd", raw)
+    assert p == {"end_reason": "logout"}
+
+
 def test_extract_payload_permission_request_request_id_blank():
     raw = {
         "tool_name": "Bash",

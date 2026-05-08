@@ -420,6 +420,13 @@ the *contract* (hook stdin schema), claude-code-state watches *visual
 output*. The two are complementary signal sources; together they make
 "Claude Code released a breaking change" loud and obvious.
 
+When drift fires, the maintenance loop is documented in
+[`docs/verifying-hook-contract.md`](../../verifying-hook-contract.md):
+pull the official Claude Code hook docs, diff against `drift.py` /
+`hook.py`, smoke-test ambiguous stdout shapes against real claude in
+an isolated tmux session, and propagate the verified result into
+code + tests + this spec.
+
 ## CLI surface
 
 The Python package installs **two** console_scripts:

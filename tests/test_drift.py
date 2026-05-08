@@ -165,3 +165,46 @@ def test_real_2026_05_08_payload_no_drift(isolated_tap_dir):
     raw = json.loads(raw_text)
     drift.check("PermissionRequest", raw)
     assert _drift_log_lines(isolated_tap_dir) == []
+
+
+def test_session_end_uses_end_reason(isolated_tap_dir):
+    """SessionEnd's required field is end_reason, not reason."""
+    raw = {
+        "session_id": "s",
+        "transcript_path": "/t.jsonl",
+        "cwd": "/c",
+        "hook_event_name": "SessionEnd",
+        "end_reason": "logout",
+    }
+    drift.check("SessionEnd", raw)
+    assert _drift_log_lines(isolated_tap_dir) == []
+
+
+def test_session_end_with_old_reason_field_flags_drift(isolated_tap_dir):
+    """If a future Claude release renamed back to 'reason', drift should
+    flag both: MISSING end_reason and UNKNOWN reason."""
+    raw = {
+        "session_id": "s",
+        "transcript_path": "/t.jsonl",
+        "cwd": "/c",
+        "hook_event_name": "SessionEnd",
+        "reason": "logout",  # the old (wrong) field name
+    }
+    drift.check("SessionEnd", raw)
+    lines = _drift_log_lines(isolated_tap_dir)
+    assert any("MISSING | end_reason" in line for line in lines), lines
+    assert any("UNKNOWN | reason" in line for line in lines), lines
+
+
+def test_notification_required_fields(isolated_tap_dir):
+    """Notification requires notification_type + notification_message."""
+    raw = {
+        "session_id": "s",
+        "transcript_path": "/t.jsonl",
+        "cwd": "/c",
+        "hook_event_name": "Notification",
+        "notification_type": "permission_prompt",
+        "notification_message": "Claude needs input",
+    }
+    drift.check("Notification", raw)
+    assert _drift_log_lines(isolated_tap_dir) == []

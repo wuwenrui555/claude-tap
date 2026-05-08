@@ -93,6 +93,12 @@ After a Claude Code upgrade, grep `drift.log` to see if the contract
 shifted. The drift checker is non-blocking and never affects what we
 return to Claude.
 
+When `drift.log` shows new lines, follow
+[`docs/verifying-hook-contract.md`](docs/verifying-hook-contract.md)
+to re-pin the contract: pull the official docs, diff against
+`drift.py` and `hook.py`, smoke-test ambiguous control fields against
+real claude, then update code + tests + spec.
+
 ## Configuration
 
 | Variable | Default | Purpose |

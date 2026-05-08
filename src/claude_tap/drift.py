@@ -63,16 +63,16 @@ _EXPECTED: dict[str, dict[str, set[str]]] = {
         "optional": _COMMON_OPTIONAL,
     },
     "Notification": {
-        "required": _COMMON_REQUIRED | {"message"},
+        "required": _COMMON_REQUIRED | {"notification_type", "notification_message"},
         "optional": _COMMON_OPTIONAL,
     },
     "Stop": {
         "required": _COMMON_REQUIRED,
-        "optional": _COMMON_OPTIONAL | {"stop_hook_active"},
+        "optional": _COMMON_OPTIONAL | {"stop_hook_active", "response"},
     },
     "SessionEnd": {
-        "required": _COMMON_REQUIRED,
-        "optional": _COMMON_OPTIONAL | {"reason"},
+        "required": _COMMON_REQUIRED | {"end_reason"},
+        "optional": _COMMON_OPTIONAL,
     },
     "PermissionRequest": {
         "required": _COMMON_REQUIRED | {"tool_name", "tool_input"},
