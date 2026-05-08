@@ -1,7 +1,9 @@
 # claude-tap
 
-[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![CI](https://github.com/wuwenrui555/claude-tap/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/wuwenrui555/claude-tap/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://pre-commit.com)
 
 Wrap Claude Code: structured event stream + synchronous decision bridge.
 
@@ -99,7 +101,7 @@ Every hook invocation runs a best-effort schema check against the
 Claude Code payload format we observed at the time of writing. New or
 missing fields are logged once each to `~/.claude-tap/drift.log`:
 
-```
+```text
 2026-05-08T13:00:00+00:00 | PreToolUse | UNKNOWN | new_field | seen=1
 2026-05-08T13:00:01+00:00 | PermissionRequest | MISSING | tool_input | seen=1
 ```
