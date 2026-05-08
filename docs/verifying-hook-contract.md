@@ -208,7 +208,7 @@ git commit -m "fix(drift): SessionEnd uses 'reason' (empirical 2026-05-08; docs 
 | `~/.claude-tap/drift.log` has new `MISSING` entries | Step 1 → 2 → 4. Step 3 not usually needed (input shape is unambiguous). |
 | `~/.claude-tap/drift.log` has new `UNKNOWN` entries | Step 1 → decide whether to add the field. Step 4 if yes. |
 | Adding a new hook event to claude-tap (one of the 21+ we don't yet support) | Full loop, Steps 1–4. |
-| ccmux-backend (or another consumer) reports "the decision didn't take effect" | Step 3 — likely a stdout format mismatch. |
+| A consumer (chat backend, IDE plugin, dashboard, etc.) reports "the decision didn't take effect" | Step 3 — likely a stdout format mismatch. |
 
 ## Reference URLs and key files
 
