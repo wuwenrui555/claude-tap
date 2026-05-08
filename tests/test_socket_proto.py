@@ -38,7 +38,12 @@ def test_try_socket_decision_no_socket(tmp_path):
 def test_try_socket_decision_round_trip(tmp_path):
     """Set up a fake listener in a background thread; send a request."""
     sock_path = tmp_path / "decision.sock"
-    expected_decision = {"hookSpecificOutput": {"permissionDecision": "allow"}}
+    expected_decision = {
+        "hookSpecificOutput": {
+            "hookEventName": "PermissionRequest",
+            "decision": {"behavior": "allow"},
+        }
+    }
 
     server_ready = threading.Event()
 

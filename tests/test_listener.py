@@ -57,7 +57,12 @@ async def test_listener_round_trip(isolated_tap_dir):
             assert req.tool_name == "Bash"
             await listener.respond(
                 req.request_id,
-                {"hookSpecificOutput": {"permissionDecision": "allow"}},
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PermissionRequest",
+                        "decision": {"behavior": "allow"},
+                    }
+                },
             )
             break
 
@@ -65,7 +70,7 @@ async def test_listener_round_trip(isolated_tap_dir):
 
     assert result["response"]["request_id"] == "r-test"
     assert (
-        result["response"]["decision"]["hookSpecificOutput"]["permissionDecision"]
+        result["response"]["decision"]["hookSpecificOutput"]["decision"]["behavior"]
         == "allow"
     )
 
@@ -107,9 +112,11 @@ async def test_listener_concurrent_requests(isolated_tap_dir):
 
         seen = 0
         async for req in listener:
+            behavior = "allow" if req.request_id == "r-1" else "deny"
             decision = {
                 "hookSpecificOutput": {
-                    "permissionDecision": "allow" if req.request_id == "r-1" else "deny"
+                    "hookEventName": "PermissionRequest",
+                    "decision": {"behavior": behavior},
                 }
             }
             await listener.respond(req.request_id, decision)
@@ -121,9 +128,10 @@ async def test_listener_concurrent_requests(isolated_tap_dir):
         await asyncio.to_thread(t2.join, 2.0)
 
     assert (
-        results["r-1"]["decision"]["hookSpecificOutput"]["permissionDecision"]
+        results["r-1"]["decision"]["hookSpecificOutput"]["decision"]["behavior"]
         == "allow"
     )
     assert (
-        results["r-2"]["decision"]["hookSpecificOutput"]["permissionDecision"] == "deny"
+        results["r-2"]["decision"]["hookSpecificOutput"]["decision"]["behavior"]
+        == "deny"
     )

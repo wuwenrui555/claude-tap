@@ -78,6 +78,21 @@ which Claude treats as "no opinion → fall through to default behavior".
 For `PermissionRequest`, the default is the in-pane TUI prompt — so
 the local user keeps full control. **`{}` never means "deny".**
 
+## Schema drift detection
+
+Every hook invocation runs a best-effort schema check against the
+Claude Code payload format we observed at the time of writing. New or
+missing fields are logged once each to `~/.claude-tap/drift.log`:
+
+```
+2026-05-08T13:00:00+00:00 | PreToolUse | UNKNOWN | new_field | seen=1
+2026-05-08T13:00:01+00:00 | PermissionRequest | MISSING | tool_input | seen=1
+```
+
+After a Claude Code upgrade, grep `drift.log` to see if the contract
+shifted. The drift checker is non-blocking and never affects what we
+return to Claude.
+
 ## Configuration
 
 | Variable | Default | Purpose |

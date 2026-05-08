@@ -99,7 +99,8 @@ the TUI. This is the property the entire claude-tap design relies on.
 ~/.claude-tap/                   # all runtime state lives here
 ├── bin/claude                   # bash wrapper, ~80 lines, injected ahead of real claude
 ├── events.jsonl                 # append-only event log, schema_version=1
-└── decision.sock                # unix socket, bound by whoever wants to be decision authority
+├── decision.sock                # unix socket, bound by whoever wants to be decision authority
+└── drift.log                    # schema-drift warnings (one line per unique anomaly per process)
 ```
 
 The Python package itself (CLI, hook entry point, helpers) lives in
@@ -123,6 +124,11 @@ caller ──→ bin/claude wrapper ──→ CLAUDE_TAP_ACTIVE=1 ?
                                                 │
                                                 ▼
                                   claude-tap-hook <event_name>
+                                                │
+                                                ▼
+                                  drift.check (best-effort schema validation;
+                                  appends to drift.log on first sighting of
+                                  each unknown / missing field)
                                                 │
                                   ┌─────────────┴──────────────┐
                                   │                            │
@@ -252,7 +258,8 @@ Code itself.
 ### Why decision is opaque
 
 Claude Code's hook decision JSON shape may evolve across versions
-(e.g., today: `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","permissionDecision":"allow"}}`).
+(today, verified 2026-05-08:
+`{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}`).
 Keeping claude-tap agnostic means a Claude Code update only requires
 listeners to update their decision constructors; claude-tap stays put.
 
@@ -373,12 +380,45 @@ prevent future readers from mistaking timeout for deny:
 | Hook stdout | Meaning to Claude | Effect |
 |---|---|---|
 | `{}` | "I have no opinion." | Fall through to default behavior. For `PermissionRequest`, default = TUI prompt; local user answers. For non-permission hooks, no effect. |
-| `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","permissionDecision":"allow"}}` | "Approve as the user." | Claude proceeds; TUI is dismissed. |
-| `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","permissionDecision":"deny","permissionDecisionReason":"..."}}` | "Reject as the user." | Claude denies; TUI is dismissed. |
+| `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}` | "Approve as the user." | Claude proceeds; TUI shows `Allowed by PermissionRequest hook`. |
+| `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}` | "Reject as the user." | Claude denies; TUI shows `Denied by PermissionRequest hook`. |
+
+> Verified empirically against Claude Code 2.1.133 on 2026-05-08. Note
+> that `PermissionRequest` uses `decision.behavior`, not the
+> `permissionDecision` field that `PreToolUse` uses. They are different
+> formats; do not cross them.
 
 Empty `{}` is therefore **always safe**. The TUI remains, the local
 user keeps full control. No code path in claude-tap returns "deny" on
 behalf of the user.
+
+## Schema drift detection
+
+`claude_tap.drift` runs on every hook invocation, before payload
+extraction. It validates the Claude Code stdin against an expected
+per-event field set, hand-maintained in `drift.py:_EXPECTED`, and
+appends one line to `~/.claude-tap/drift.log` on the **first sighting
+per process** of each anomaly:
+
+| Kind | Meaning |
+|---|---|
+| `MISSING` | A required field is absent — extraction will produce empty values. Update `_EXPECTED` and the relevant extractor in `hook.py`. |
+| `UNKNOWN` | A top-level field we have no entry for is present — Claude added something. Informational. |
+| `UNKNOWN_EVENT` | The hook fired with an event_name we don't have a schema for at all. |
+
+Drift checking is best-effort: any error inside the module is
+swallowed so a buggy schema entry can never break the hook. After a
+Claude Code release, `grep MISSING ~/.claude-tap/drift.log` is the
+fastest way to spot contract changes that need our attention. Each
+record is dedupped per (event, kind, field) within a single hook
+process lifetime, so a stable drift never floods the file.
+
+This module replaces the role that `drift.log` plays in
+[`claude-code-state`](https://github.com/wuwenrui555/claude-code-state)
+for screen-text drift, but at a different layer: claude-tap watches
+the *contract* (hook stdin schema), claude-code-state watches *visual
+output*. The two are complementary signal sources; together they make
+"Claude Code released a breaking change" loud and obvious.
 
 ## CLI surface
 
@@ -603,21 +643,18 @@ async def serve_decisions() -> None:
             )
 
             answer = (await asyncio.to_thread(sys.stdin.readline)).strip().lower()
-            allow = answer == "allow"
+            behavior = "allow" if answer == "allow" else "deny"
 
+            # PermissionRequest expects decision.behavior (NOT
+            # permissionDecision — that is the PreToolUse format).
             decision = {
                 "hookSpecificOutput": {
                     "hookEventName": "PermissionRequest",
-                    "permissionDecision": "allow" if allow else "deny",
-                    **(
-                        {"permissionDecisionReason": "denied via sample consumer"}
-                        if not allow
-                        else {}
-                    ),
+                    "decision": {"behavior": behavior},
                 }
             }
             await listener.respond(req.request_id, decision)
-            print(f"<<< sent: {decision['hookSpecificOutput']['permissionDecision']}\n")
+            print(f"<<< sent: {behavior}\n")
 
 
 async def main() -> None:
@@ -631,28 +668,27 @@ if __name__ == "__main__":
         pass
 ```
 
-## Open questions / development-day-1 verifications
+## Resolved verifications
 
-These are not blockers for shipping the design, but the implementer
-should resolve them on day 1 before going further:
-
-1. **`PermissionRequest` decision JSON shape.** The empirical test on
-   2026-05-08 confirmed the hook fires with rich stdin and the TUI runs
-   in parallel. We did **not** verify the exact stdout shape Claude
-   accepts as a decision. Reasonable hypothesis based on the user's
-   existing PreToolUse hooks:
+1. **`PermissionRequest` decision JSON shape** — verified empirically
+   on 2026-05-08 against Claude Code 2.1.133. The correct format is:
 
    ```json
-   {"hookSpecificOutput":{"hookEventName":"PermissionRequest","permissionDecision":"allow"}}
+   {"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}
    ```
 
-   First implementation step is to write a test harness that returns
-   that exact shape and observes whether claude (a) auto-allows
-   without a TUI prompt and (b) records the decision in the transcript.
-   If the shape is different, update the sample consumer and the
-   "hook return value semantics" table accordingly. Since claude-tap
-   itself treats `decision` as opaque, only consumer-side code needs
-   to change.
+   `decision.behavior` (NOT `permissionDecision`, which is the
+   `PreToolUse` field). When allowed, TUI shows
+   `Allowed by PermissionRequest hook`; when denied,
+   `Denied by PermissionRequest hook` plus
+   `Error: Permission denied by hook`. TUI never prompts the user when
+   the hook returns one of these. Empty `{}` falls through to the TUI
+   prompt as expected.
+
+   The sample consumer and the "hook return value semantics" table use
+   this verified format. Since claude-tap itself treats `decision` as
+   opaque bytes, only consumer-side code needs to change if Claude
+   Code revises the format in a future release.
 
 ## Decisions log
 

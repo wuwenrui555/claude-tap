@@ -96,7 +96,7 @@ async def test_hook_subprocess_with_listener_routes_decision(isolated_tap_dir):
                 {
                     "hookSpecificOutput": {
                         "hookEventName": "PermissionRequest",
-                        "permissionDecision": "allow",
+                        "decision": {"behavior": "allow"},
                     }
                 },
             )
@@ -105,7 +105,7 @@ async def test_hook_subprocess_with_listener_routes_decision(isolated_tap_dir):
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5.0)
         assert proc.returncode == 0, f"stderr: {stderr.decode()}"
         decision = json.loads(stdout.decode())
-        assert decision["hookSpecificOutput"]["permissionDecision"] == "allow"
+        assert decision["hookSpecificOutput"]["decision"]["behavior"] == "allow"
 
 
 @pytest.mark.asyncio
@@ -167,7 +167,7 @@ async def test_hook_subprocess_concurrent_requests(isolated_tap_dir):
                 {
                     "hookSpecificOutput": {
                         "hookEventName": "PermissionRequest",
-                        "permissionDecision": d,
+                        "decision": {"behavior": d},
                     }
                 },
             )
@@ -179,8 +179,8 @@ async def test_hook_subprocess_concurrent_requests(isolated_tap_dir):
         out2, _ = await asyncio.wait_for(proc2.communicate(), timeout=5.0)
         d1 = json.loads(out1.decode())
         d2 = json.loads(out2.decode())
-        assert d1["hookSpecificOutput"]["permissionDecision"] == "allow"
-        assert d2["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert d1["hookSpecificOutput"]["decision"]["behavior"] == "allow"
+        assert d2["hookSpecificOutput"]["decision"]["behavior"] == "deny"
 
 
 @pytest.mark.asyncio

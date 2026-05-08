@@ -109,4 +109,4 @@ def test_bridge_auto_allow_round_trip(isolated_tap_dir):
 
     response = json.loads(data.split(b"\n", 1)[0])
     assert response["request_id"] == "r-1"
-    assert response["decision"]["hookSpecificOutput"]["permissionDecision"] == "allow"
+    assert response["decision"]["hookSpecificOutput"]["decision"]["behavior"] == "allow"

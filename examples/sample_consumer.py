@@ -70,21 +70,19 @@ async def serve_decisions() -> None:
             )
 
             answer = (await asyncio.to_thread(sys.stdin.readline)).strip().lower()
-            allow = answer == "allow"
+            behavior = "allow" if answer == "allow" else "deny"
 
+            # PermissionRequest hooks expect decision.behavior (NOT
+            # permissionDecision — that is the PreToolUse format).
+            # Verified against Claude Code 2.1.133 on 2026-05-08.
             decision = {
                 "hookSpecificOutput": {
                     "hookEventName": "PermissionRequest",
-                    "permissionDecision": "allow" if allow else "deny",
-                    **(
-                        {"permissionDecisionReason": "denied via sample consumer"}
-                        if not allow
-                        else {}
-                    ),
+                    "decision": {"behavior": behavior},
                 }
             }
             await listener.respond(req.request_id, decision)
-            print(f"<<< sent: {decision['hookSpecificOutput']['permissionDecision']}\n")
+            print(f"<<< sent: {behavior}\n")
 
 
 async def main() -> None:

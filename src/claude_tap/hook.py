@@ -15,6 +15,7 @@ import sys
 import uuid
 from typing import Any
 
+from . import drift
 from .config import (
     decision_sock_path,
     decision_timeout,
@@ -107,6 +108,9 @@ def run(event_name: str, stdin_text: str) -> str:
         raw = json.loads(stdin_text) if stdin_text.strip() else {}
     except json.JSONDecodeError:
         raw = {}
+
+    # Best-effort schema-drift check. Logs to drift.log; never raises.
+    drift.check(event_name, raw)
 
     request_id = _generate_request_id() if event_name == "PermissionRequest" else ""
     event = build_event(event_name, raw, request_id=request_id)

@@ -1,5 +1,6 @@
 """claude-tap: Claude Code → structured events + decision bridge."""
 
+from . import drift
 from ._version import __version__
 from .events import SCHEMA_VERSION, ClaudeInfo, Event, TmuxInfo
 from .listener import DecisionListener, DecisionRequest
@@ -14,4 +15,5 @@ __all__ = [
     "EventStream",
     "DecisionListener",
     "DecisionRequest",
+    "drift",
 ]

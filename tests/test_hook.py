@@ -163,7 +163,7 @@ def test_run_permission_request_with_listener(isolated_tap_dir, monkeypatch):
                 "decision": {
                     "hookSpecificOutput": {
                         "hookEventName": "PermissionRequest",
-                        "permissionDecision": "allow",
+                        "decision": {"behavior": "allow"},
                     }
                 },
             }
@@ -190,6 +190,6 @@ def test_run_permission_request_with_listener(isolated_tap_dir, monkeypatch):
     t.join(timeout=2.0)
 
     parsed = json.loads(output)
-    assert parsed["hookSpecificOutput"]["permissionDecision"] == "allow"
+    assert parsed["hookSpecificOutput"]["decision"]["behavior"] == "allow"
     assert captured_request["tool_name"] == "Bash"
     assert captured_request["request_id"].startswith("r-")

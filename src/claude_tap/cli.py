@@ -71,19 +71,24 @@ def cmd_watch(args) -> int:
 
 
 def _build_decision(verb: str | None) -> dict[str, Any]:
+    """Build the Claude Code PermissionRequest hook stdout decision.
+
+    Verified empirically against Claude Code 2.1.133 on 2026-05-08:
+    PermissionRequest expects ``decision: {behavior: "allow"|"deny"}``
+    (NOT ``permissionDecision`` — that is the PreToolUse format).
+    """
     if verb == "allow":
         return {
             "hookSpecificOutput": {
                 "hookEventName": "PermissionRequest",
-                "permissionDecision": "allow",
+                "decision": {"behavior": "allow"},
             }
         }
     if verb == "deny":
         return {
             "hookSpecificOutput": {
                 "hookEventName": "PermissionRequest",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": "denied via claude-tap bridge",
+                "decision": {"behavior": "deny"},
             }
         }
     return {}
