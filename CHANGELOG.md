@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-05-08
+
+### Added
+
+- Standard dev-tooling layer: `.pre-commit-config.yaml` (ruff +
+  markdownlint), GitHub Actions CI workflow (pytest matrix on
+  3.11 / 3.12 / 3.13 plus a pre-commit lint job), `.markdownlint.yaml`,
+  `.markdownlintignore`, and an expanded `.gitignore`.
+- README status badges: CI, License, Python, pre-commit.
+
+### Changed
+
+- `docs/verifying-hook-contract.md`: drop `ccmux-backend` as the
+  named example consumer and replace it with a generic phrase, so the
+  protocol stays consumer-agnostic. Tighten markdownlint compliance
+  (explicit fence languages, proper heading levels for previously-bold
+  subsections).
+
 ## [0.1.1] - 2026-05-08
 
 ### Added
