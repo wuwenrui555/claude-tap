@@ -17,7 +17,7 @@ it on first live use.
 
 ## The four-step loop
 
-```
+```text
    ┌─→ 1. Pull the official docs
    │
    ├─→ 2. Diff against claude-tap's schema (drift.py + hook.py)
@@ -31,7 +31,7 @@ it on first live use.
 
 The Claude Code hook docs live at:
 
-```
+```text
 https://code.claude.com/docs/en/hooks
 ```
 
@@ -208,7 +208,7 @@ git commit -m "fix(drift): SessionEnd uses 'reason' (empirical 2026-05-08; docs 
 | `~/.claude-tap/drift.log` has new `MISSING` entries | Step 1 → 2 → 4. Step 3 not usually needed (input shape is unambiguous). |
 | `~/.claude-tap/drift.log` has new `UNKNOWN` entries | Step 1 → decide whether to add the field. Step 4 if yes. |
 | Adding a new hook event to claude-tap (one of the 21+ we don't yet support) | Full loop, Steps 1–4. |
-| ccmux-backend (or another consumer) reports "the decision didn't take effect" | Step 3 — likely a stdout format mismatch. |
+| A consumer (chat backend, IDE plugin, dashboard, etc.) reports "the decision didn't take effect" | Step 3 — likely a stdout format mismatch. |
 
 ## Reference URLs and key files
 
@@ -247,7 +247,7 @@ The first live run of `claude-tap` against Claude Code 2.1.136
 (the latest release at that time) produced 7 drift entries within
 seconds. Three categories:
 
-**1. Docs/reality mismatch (the docs were wrong)**
+### 1. Docs/reality mismatch (the docs were wrong)
 
 | Event | Docs claim | Reality |
 |---|---|---|
@@ -268,7 +268,7 @@ ahead of a planned rename that never shipped, or it's a typo in the
 field names. We reverted to the empirical names and added test
 fixtures asserting the real schema.
 
-**2. Schema gaps (we were missing optional fields)**
+### 2. Schema gaps (we were missing optional fields)
 
 Real `PreToolUse`, `PostToolUse`, and `PermissionRequest` payloads
 include `tool_use_id` (string). `PostToolUse` additionally includes
@@ -276,13 +276,13 @@ include `tool_use_id` (string). `PostToolUse` additionally includes
 they are **expected** in claude's stdin, so they belong in the
 `optional` set so drift doesn't keep flagging them. Added.
 
-**3. Confirmed correct**
+### 3. Confirmed correct
 
 `PermissionRequest` `permission_suggestions` (which we already had
 in optional) appeared with rich `addRules`-style content that
 matches the docs. So it's not all wrong — just two specific events.
 
-**Lesson for future maintenance**
+### Lesson for future maintenance
 
 When a `_EXPECTED` change is motivated **purely by docs** (no live
 observation), pair it with a smoke test against a real session
