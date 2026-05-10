@@ -59,12 +59,15 @@ def extract_payload(event_name: str, raw: dict[str, Any]) -> dict[str, Any]:
         return {
             "tool_name": raw.get("tool_name", ""),
             "tool_input": raw.get("tool_input", {}),
+            "tool_use_id": raw.get("tool_use_id", ""),
         }
     if event_name == "PostToolUse":
         return {
             "tool_name": raw.get("tool_name", ""),
             "tool_input": raw.get("tool_input", {}),
             "tool_response": raw.get("tool_response", {}),
+            "tool_use_id": raw.get("tool_use_id", ""),
+            "duration_ms": raw.get("duration_ms", 0),
         }
     if event_name == "Notification":
         # Verified empirically against Claude Code 2.1.136 on 2026-05-08:
@@ -85,6 +88,12 @@ def extract_payload(event_name: str, raw: dict[str, Any]) -> dict[str, Any]:
             "tool_input": raw.get("tool_input", {}),
             "permission_suggestions": raw.get("permission_suggestions", []),
         }
+    if event_name == "Stop":
+        # Surface the assistant's final text for downstream consumers
+        # that want to rebuild a per-turn message stream from hook
+        # events alone (avoiding transcript polling). See
+        # docs/superpowers/specs/2026-05-09-tap-v0.1.3-message-fields.md.
+        return {"last_assistant_message": raw.get("last_assistant_message", "")}
     return {}
 
 
