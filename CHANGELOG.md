@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-05-09
+
+### Added
+
+- `Stop.payload` now carries `last_assistant_message`: the
+  assistant's final text per turn. Empty string when stdin omits
+  it.
+- `PreToolUse.payload` and `PostToolUse.payload` now carry
+  `tool_use_id` so the two halves of a tool call can be paired.
+  `PostToolUse.payload` additionally carries `duration_ms`.
+- Drift detector recognises `agent_id` and `agent_type` (subagent
+  annotations on `PreToolUse` / `PostToolUse`, observed via
+  `drift.log` on 2026-05-09); previously these emitted `UNKNOWN`
+  warnings.
+- Spec at
+  `docs/superpowers/specs/2026-05-09-tap-v0.1.3-message-fields.md`.
+
+### Changed
+
+- Drift schema: `tool_use_id` (Pre/PostToolUse), `duration_ms`
+  (PostToolUse), and `last_assistant_message` (Stop) are now
+  marked **required** so a future Claude Code release dropping
+  them triggers an alert. The wrapper still produces a valid
+  event with empty defaults if a field is missing — the required
+  classification only changes drift logging, not extraction.
+
 ## [0.1.2] - 2026-05-08
 
 ### Added
