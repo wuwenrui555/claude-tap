@@ -39,6 +39,7 @@ def test_clean_payload_logs_nothing(isolated_tap_dir):
         "hook_event_name": "PreToolUse",
         "tool_name": "Bash",
         "tool_input": {"command": "ls"},
+        "tool_use_id": "toolu_01abc",
         "permission_mode": "default",
     }
     drift.check("PreToolUse", raw)
@@ -52,6 +53,7 @@ def test_missing_required_field_logged(isolated_tap_dir):
         "hook_event_name": "PreToolUse",
         "tool_name": "Bash",
         "tool_input": {"command": "ls"},
+        "tool_use_id": "toolu_01abc",
         # session_id missing!
     }
     drift.check("PreToolUse", raw)
@@ -65,13 +67,20 @@ def test_missing_required_field_logged(isolated_tap_dir):
 def test_multiple_missing_fields_one_line_each(isolated_tap_dir):
     raw = {
         "hook_event_name": "PreToolUse",
-        # session_id, transcript_path, cwd, tool_name, tool_input all missing
+        # session_id, transcript_path, cwd, tool_name, tool_input,
+        # tool_use_id all missing (6 v0.1.3 PreToolUse-required fields)
     }
     drift.check("PreToolUse", raw)
     lines = _drift_log_lines(isolated_tap_dir)
-    # 5 missing fields × 1 line each
-    assert len(lines) == 5
-    for missing in ("session_id", "transcript_path", "cwd", "tool_name", "tool_input"):
+    assert len(lines) == 6
+    for missing in (
+        "session_id",
+        "transcript_path",
+        "cwd",
+        "tool_name",
+        "tool_input",
+        "tool_use_id",
+    ):
         assert any(f"MISSING | {missing}" in line for line in lines), missing
 
 
@@ -251,4 +260,104 @@ def test_notification_required_fields(isolated_tap_dir):
         "message": "Claude needs input",
     }
     drift.check("Notification", raw)
+    assert _drift_log_lines(isolated_tap_dir) == []
+
+
+def test_pre_tool_use_tool_use_id_now_required(isolated_tap_dir):
+    """v0.1.3 promotes tool_use_id from optional to required so a
+    future Claude Code release dropping it triggers a drift alert."""
+    raw = {
+        "session_id": "s",
+        "transcript_path": "/t.jsonl",
+        "cwd": "/c",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": "ls"},
+        # tool_use_id missing
+    }
+    drift.check("PreToolUse", raw)
+    lines = _drift_log_lines(isolated_tap_dir)
+    assert any("MISSING | tool_use_id" in line for line in lines), lines
+
+
+def test_post_tool_use_tool_use_id_and_duration_ms_required(isolated_tap_dir):
+    """v0.1.3 promotes tool_use_id and duration_ms to required for
+    PostToolUse."""
+    raw = {
+        "session_id": "s",
+        "transcript_path": "/t.jsonl",
+        "cwd": "/c",
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": "ls"},
+        "tool_response": {"stdout": "x"},
+        # tool_use_id, duration_ms missing
+    }
+    drift.check("PostToolUse", raw)
+    lines = _drift_log_lines(isolated_tap_dir)
+    assert any("MISSING | tool_use_id" in line for line in lines), lines
+    assert any("MISSING | duration_ms" in line for line in lines), lines
+
+
+def test_stop_last_assistant_message_now_required(isolated_tap_dir):
+    """v0.1.3 promotes last_assistant_message to required on Stop."""
+    raw = {
+        "session_id": "s",
+        "transcript_path": "/t.jsonl",
+        "cwd": "/c",
+        "hook_event_name": "Stop",
+        # last_assistant_message missing
+    }
+    drift.check("Stop", raw)
+    lines = _drift_log_lines(isolated_tap_dir)
+    assert any("MISSING | last_assistant_message" in line for line in lines), lines
+
+
+def test_agent_id_and_agent_type_are_known_optional(isolated_tap_dir):
+    """Subagent-spawned tool calls carry agent_id / agent_type fields
+    (caught via drift.log on 2026-05-09). Both are optional so they
+    don't generate spurious UNKNOWN warnings."""
+    raw = {
+        "session_id": "s",
+        "transcript_path": "/t.jsonl",
+        "cwd": "/c",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": "ls"},
+        "tool_use_id": "toolu_01abc",
+        "agent_id": "agent-xyz",
+        "agent_type": "Explore",
+    }
+    drift.check("PreToolUse", raw)
+    assert _drift_log_lines(isolated_tap_dir) == []
+
+
+def test_complete_v0_1_3_post_tool_use_no_drift(isolated_tap_dir):
+    """End-to-end: a PostToolUse stdin with all fields v0.1.3 expects
+    must not produce any drift entry."""
+    raw = {
+        "session_id": "s",
+        "transcript_path": "/t.jsonl",
+        "cwd": "/c",
+        "hook_event_name": "PostToolUse",
+        "permission_mode": "default",
+        "tool_name": "Bash",
+        "tool_input": {"command": "ls"},
+        "tool_response": {"stdout": "foo\n", "stderr": ""},
+        "tool_use_id": "toolu_01abc",
+        "duration_ms": 17,
+    }
+    drift.check("PostToolUse", raw)
+    assert _drift_log_lines(isolated_tap_dir) == []
+
+
+def test_complete_v0_1_3_stop_no_drift(isolated_tap_dir):
+    raw = {
+        "session_id": "s",
+        "transcript_path": "/t.jsonl",
+        "cwd": "/c",
+        "hook_event_name": "Stop",
+        "last_assistant_message": "All done.",
+    }
+    drift.check("Stop", raw)
     assert _drift_log_lines(isolated_tap_dir) == []

@@ -27,10 +27,69 @@ def test_extract_payload_pre_tool_use():
     raw = {
         "tool_name": "Bash",
         "tool_input": {"command": "ls"},
+        "tool_use_id": "toolu_01abc",
         "extra": "ignored",
     }
     p = extract_payload("PreToolUse", raw)
-    assert p == {"tool_name": "Bash", "tool_input": {"command": "ls"}}
+    assert p == {
+        "tool_name": "Bash",
+        "tool_input": {"command": "ls"},
+        "tool_use_id": "toolu_01abc",
+    }
+
+
+def test_extract_payload_pre_tool_use_missing_tool_use_id_defaults_empty():
+    """Defensive default: if Claude Code drops tool_use_id in some
+    future release, payload still contains the key (drift will alert
+    separately). Consumers can assume the key is always present."""
+    raw = {"tool_name": "Bash", "tool_input": {"command": "ls"}}
+    p = extract_payload("PreToolUse", raw)
+    assert p == {
+        "tool_name": "Bash",
+        "tool_input": {"command": "ls"},
+        "tool_use_id": "",
+    }
+
+
+def test_extract_payload_post_tool_use_carries_tool_use_id_and_duration():
+    raw = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "ls"},
+        "tool_response": {"stdout": "foo\n", "stderr": ""},
+        "tool_use_id": "toolu_01abc",
+        "duration_ms": 17,
+    }
+    p = extract_payload("PostToolUse", raw)
+    assert p == {
+        "tool_name": "Bash",
+        "tool_input": {"command": "ls"},
+        "tool_response": {"stdout": "foo\n", "stderr": ""},
+        "tool_use_id": "toolu_01abc",
+        "duration_ms": 17,
+    }
+
+
+def test_extract_payload_post_tool_use_defensive_defaults():
+    raw = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "ls"},
+        "tool_response": {"stdout": "x"},
+    }
+    p = extract_payload("PostToolUse", raw)
+    assert p["tool_use_id"] == ""
+    assert p["duration_ms"] == 0
+
+
+def test_extract_payload_stop_carries_last_assistant_message():
+    raw = {"last_assistant_message": "Done. Let me know if anything else."}
+    p = extract_payload("Stop", raw)
+    assert p == {"last_assistant_message": "Done. Let me know if anything else."}
+
+
+def test_extract_payload_stop_defensive_default_when_missing():
+    raw = {}
+    p = extract_payload("Stop", raw)
+    assert p == {"last_assistant_message": ""}
 
 
 def test_extract_payload_notification():

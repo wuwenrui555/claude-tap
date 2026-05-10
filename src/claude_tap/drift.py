@@ -53,9 +53,12 @@ from .config import claude_tap_dir
 _COMMON_REQUIRED = {"session_id", "transcript_path", "cwd", "hook_event_name"}
 _COMMON_OPTIONAL = {"permission_mode", "effort"}
 
-# Tool-related hooks consistently include tool_use_id; PostToolUse also
-# includes duration_ms. Both are observed but we don't extract them.
-_TOOL_OPTIONAL = {"tool_use_id"}
+# Tool-related fields that may appear in PreToolUse / PostToolUse /
+# PermissionRequest stdin. agent_id / agent_type are subagent
+# annotations observed via drift.log on 2026-05-09 — they're absent
+# on top-level tool calls and present on subagent-spawned ones, so
+# they're always optional rather than required.
+_TOOL_OPTIONAL = {"agent_id", "agent_type"}
 
 _EXPECTED: dict[str, dict[str, set[str]]] = {
     "SessionStart": {
@@ -67,12 +70,16 @@ _EXPECTED: dict[str, dict[str, set[str]]] = {
         "optional": _COMMON_OPTIONAL,
     },
     "PreToolUse": {
-        "required": _COMMON_REQUIRED | {"tool_name", "tool_input"},
+        # v0.1.3: tool_use_id promoted to required so a future Claude
+        # Code release dropping it triggers a drift alert.
+        "required": _COMMON_REQUIRED | {"tool_name", "tool_input", "tool_use_id"},
         "optional": _COMMON_OPTIONAL | _TOOL_OPTIONAL,
     },
     "PostToolUse": {
-        "required": _COMMON_REQUIRED | {"tool_name", "tool_input", "tool_response"},
-        "optional": _COMMON_OPTIONAL | _TOOL_OPTIONAL | {"duration_ms"},
+        # v0.1.3: tool_use_id and duration_ms both promoted to required.
+        "required": _COMMON_REQUIRED
+        | {"tool_name", "tool_input", "tool_response", "tool_use_id", "duration_ms"},
+        "optional": _COMMON_OPTIONAL | _TOOL_OPTIONAL,
     },
     "Notification": {
         # Empirical: real stdin contains `message`, not `notification_message`.
@@ -82,12 +89,12 @@ _EXPECTED: dict[str, dict[str, set[str]]] = {
         "optional": _COMMON_OPTIONAL | {"notification_type"},
     },
     "Stop": {
-        # Empirical: Stop's stdin includes `last_assistant_message` (the
-        # final assistant text of the turn). `response` is the docs name;
-        # we keep both as optional in case different versions emit either.
-        "required": _COMMON_REQUIRED,
-        "optional": _COMMON_OPTIONAL
-        | {"stop_hook_active", "response", "last_assistant_message"},
+        # v0.1.3: last_assistant_message promoted to required (the field
+        # carries the assistant's final per-turn text and is empirically
+        # always present on Claude Code 2.1.x). `response` is the docs
+        # name; we keep it optional in case it ever appears.
+        "required": _COMMON_REQUIRED | {"last_assistant_message"},
+        "optional": _COMMON_OPTIONAL | {"stop_hook_active", "response"},
     },
     "SessionEnd": {
         # Empirical: real stdin contains `reason`, not `end_reason`.
@@ -96,7 +103,9 @@ _EXPECTED: dict[str, dict[str, set[str]]] = {
     },
     "PermissionRequest": {
         "required": _COMMON_REQUIRED | {"tool_name", "tool_input"},
-        "optional": _COMMON_OPTIONAL | _TOOL_OPTIONAL | {"permission_suggestions"},
+        "optional": _COMMON_OPTIONAL
+        | _TOOL_OPTIONAL
+        | {"tool_use_id", "permission_suggestions"},
     },
 }
 
