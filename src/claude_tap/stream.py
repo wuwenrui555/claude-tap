@@ -14,9 +14,8 @@ import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 
+from . import config
 from .config import events_path
-
-_DEFAULT_POLL_INTERVAL = 0.1  # 100 ms
 
 
 class EventStream:
@@ -25,17 +24,23 @@ class EventStream:
     Usage:
         async for event in EventStream():
             handle(event)
+
+    ``poll_interval`` falls back to ``CLAUDE_TAP_POLL_INTERVAL``
+    (default 0.1) when ``None``; see ``claude_tap.config`` for the
+    settings.env-backed mechanism.
     """
 
     def __init__(
         self,
         path: Path | None = None,
         from_start: bool = False,
-        poll_interval: float = _DEFAULT_POLL_INTERVAL,
+        poll_interval: float | None = None,
     ):
         self._path = path or events_path()
         self._from_start = from_start
-        self._poll_interval = poll_interval
+        self._poll_interval = (
+            poll_interval if poll_interval is not None else config.poll_interval()
+        )
         self._closed = False
 
     def close(self) -> None:

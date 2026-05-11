@@ -33,3 +33,6 @@ htmlcov/
 .env
 .env.local
 *.local
+# User's local settings.env (cwd) — not committed. The committed
+# template lives at examples/settings.env.example.
+settings.env
