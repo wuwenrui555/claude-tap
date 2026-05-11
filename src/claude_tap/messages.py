@@ -302,6 +302,7 @@ class MessageStream:
                             content_type="text",
                             text=prompt,
                             timestamp=event_ts,
+                            source="hook",
                         ),
                     )
             elif et == "pre_tool_use" and event_passes_ts_filter:
@@ -320,6 +321,7 @@ class MessageStream:
                             content_type="text",
                             text=last_text,
                             timestamp=event_ts,
+                            source="hook",
                         ),
                     )
 
@@ -363,6 +365,7 @@ class MessageStream:
                         content_type="text",
                         text=plan.strip(),
                         timestamp=event_ts,
+                        source="hook",
                     ),
                 )
         summary = format_tool_use_summary(tool_name, tool_input)
@@ -383,6 +386,7 @@ class MessageStream:
                 tool_name=tool_name,
                 input=input_passthrough,
                 timestamp=event_ts,
+                source="hook",
             ),
         )
 

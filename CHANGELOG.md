@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-05-11
+
+### Added
+
+- `ClaudeMessage.source: Literal["hook", "transcript"]` field
+  (default `"transcript"`). Set to `"hook"` at the four
+  `MessageStream` emit sites that build records directly from hook
+  payloads (`user_prompt_submit` user text, `pre_tool_use`
+  `tool_use` record, `pre_tool_use(ExitPlanMode)` plan text, and
+  `stop.last_assistant_message` final reply). Transcript-sourced
+  records inherit the default.
+
+  Consumer use case: with dedup in effect, an assistant text
+  record's source field distinguishes mid-turn narration
+  (`source == "transcript"`) from the final reply
+  (`source == "hook"`). Previously the only way to tell was
+  contextual inference across multiple records.
+
+  Non-breaking — the field has a default; existing consumers that
+  do not inspect `source` are unaffected.
+
 ## [0.2.0] - 2026-05-10
 
 ### Added
