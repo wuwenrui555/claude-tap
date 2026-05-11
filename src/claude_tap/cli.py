@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
 import sys
+import unicodedata
+from dataclasses import asdict
+from datetime import UTC, datetime
 from typing import Any
 
-from . import __version__, drift
+from . import __version__, config, drift
 from .config import wrapper_path
 from .listener import DecisionListener
+from .messages import MessageStream
 from .stream import EventStream
 from .wrapper import render_wrapper
 
@@ -66,6 +71,172 @@ async def _watch_async(args) -> int:
 def cmd_watch(args) -> int:
     try:
         return asyncio.run(_watch_async(args))
+    except KeyboardInterrupt:
+        return 0
+
+
+def _message_to_jsonl(msg) -> str:
+    """Render a ClaudeMessage as a single JSON line.
+
+    Bytes in ``image_data`` are base64-encoded so the output is valid
+    JSON; consumers reverse with :func:`base64.b64decode`.
+    """
+    d = asdict(msg)
+    if d.get("image_data"):
+        d["image_data"] = [
+            (media_type, base64.b64encode(raw).decode("ascii"))
+            for media_type, raw in d["image_data"]
+        ]
+    return json.dumps(d, ensure_ascii=False)
+
+
+_PRETTY_TRUNCATION_MARKER = "..."
+
+
+def _pretty_timestamp(ts: str | None) -> str:
+    """Reduce an ISO timestamp to ``HH:MM:SS`` (UTC offset preserved)."""
+    if not ts:
+        return "        "
+    raw = ts
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(raw)
+        return dt.strftime("%H:%M:%S")
+    except (ValueError, TypeError):
+        # Fallback: pull out characters that look like HH:MM:SS
+        return ts[11:19] if len(ts) >= 19 else ts[:8]
+
+
+def _now_timestamp() -> str:
+    """Wall-clock UTC ``HH:MM:SS.mmm`` for emit-side timestamping.
+
+    UTC matches the message-side timestamps rendered by
+    :func:`_pretty_timestamp`, so the side-by-side comparison
+    answers "how stale is this message right now" directly.
+    """
+    now = datetime.now(UTC)
+    return now.strftime("%H:%M:%S") + f".{now.microsecond // 1000:03d}"
+
+
+def _pretty_separator() -> str:
+    """Build the per-block separator with the current emit-time embedded.
+
+    Layout: ``─ HH:MM:SS.mmm ─...─`` to a visual width matching
+    ``CLAUDE_TAP_PRETTY_WIDTH``. The single-dash prefix lines the
+    timestamp up at column 2, matching the ``[ `` prefix on the
+    header line below it so emit-time and message-time read down
+    the same column.
+    """
+    now = _now_timestamp()
+    prefix = f"─ {now} "
+    rest = max(0, config.pretty_width() - len(prefix))
+    return prefix + "─" * rest
+
+
+def _visual_width(s: str) -> int:
+    """Approximate terminal cell width.
+
+    East-Asian fullwidth/wide characters count as 2 cells; everything
+    else (including ambiguous-width) counts as 1. Good enough for
+    99% of cases; pathological cases (combining marks, ZWJ emoji
+    sequences) fall back to slight visual mismatch but never crash.
+    """
+    return sum(2 if unicodedata.east_asian_width(ch) in ("F", "W") else 1 for ch in s)
+
+
+def _visual_trim(s: str, width: int) -> str:
+    """Truncate ``s`` so its visual width does not exceed ``width``."""
+    if width <= 0:
+        return ""
+    w = 0
+    out: list[str] = []
+    for ch in s:
+        char_w = 2 if unicodedata.east_asian_width(ch) in ("F", "W") else 1
+        if w + char_w > width:
+            break
+        out.append(ch)
+        w += char_w
+    return "".join(out)
+
+
+def _pretty_header(msg) -> str:
+    """One-line header: ``[ time tmux sid ] ROLE · content_type · tool_name``.
+
+    Inside-bracket spaces line the message timestamp up at column 2
+    so it sits directly below the emit-time embedded in the
+    separator line above. The tmux fragment is
+    ``<session_name><window_id>`` (e.g. ``ccmux@80``) and is omitted
+    when neither field is populated.
+    """
+    ts = _pretty_timestamp(msg.timestamp)
+    sid = (msg.session_id or "")[:8] or "--------"
+    sn = msg.tmux_session_name or ""
+    wid = msg.tmux_window_id or ""
+    tmux_frag = f"{sn}{wid}" if (sn or wid) else ""
+    parts = [(msg.role or "?").upper()]
+    if msg.content_type and msg.content_type != "text":
+        parts.append(msg.content_type)
+    if msg.tool_name:
+        parts.append(msg.tool_name)
+    label = " · ".join(parts)
+    head_inner = f"{ts} {tmux_frag} {sid}" if tmux_frag else f"{ts} {sid}"
+    return f"[ {head_inner} ] {label}"
+
+
+def _pretty_body(msg) -> str:
+    """One-line body trimmed to a visual-cell width.
+
+    The text is escaped through ``json.dumps`` (with the outer
+    quotes stripped) so embedded newlines collapse to literal
+    ``\\n`` and a single line is guaranteed, but the result reads
+    as raw text — no surrounding ``"..."`` wrapper. The trim target
+    is ``CLAUDE_TAP_PRETTY_WIDTH`` *terminal cells* (not
+    codepoints): CJK fullwidth chars count as 2, ASCII as 1, so a
+    block of Chinese and a block of English render at comparable
+    visible widths. Image attachments are summarized inline as
+    ``[+N image(s)]``.
+    """
+    # json.dumps yields ``"escaped string"``; the [1:-1] strips the
+    # outer quotes so the body line reads as plain prose while still
+    # benefiting from json's escape machinery for \n / \t / embedded
+    # quotes / backslashes.
+    body = json.dumps(msg.text or "", ensure_ascii=False)[1:-1]
+    if msg.image_data:
+        n = len(msg.image_data)
+        body += f" [+{n} image{'s' if n != 1 else ''}]"
+    width = config.pretty_width()
+    if _visual_width(body) > width:
+        keep = max(0, width - _visual_width(_PRETTY_TRUNCATION_MARKER))
+        body = _visual_trim(body, keep) + _PRETTY_TRUNCATION_MARKER
+    return body
+
+
+def _pretty_message(msg) -> str:
+    """Render a ClaudeMessage as a fixed three-line block (+blank line in caller).
+
+    Layout::
+
+        ── HH:MM:SS.mmm ──────────────────────  ← emit time (now, UTC)
+        [HH:MM:SS sid8] ROLE · content · tool   ← msg time + ids + role
+        "json-encoded body, trimmed to width…"
+    """
+    return "\n".join([_pretty_separator(), _pretty_header(msg), _pretty_body(msg)])
+
+
+async def _watch_messages_async(args) -> int:
+    async for msg in MessageStream(from_start=args.from_start):
+        if args.json:
+            print(_message_to_jsonl(msg), flush=True)
+        else:
+            print(_pretty_message(msg), flush=True)
+            print(flush=True)  # blank line between blocks
+    return 0
+
+
+def cmd_watch_messages(args) -> int:
+    try:
+        return asyncio.run(_watch_messages_async(args))
     except KeyboardInterrupt:
         return 0
 
@@ -204,6 +375,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_watch = sub.add_parser("watch", help="Subscribe to events.jsonl")
     p_watch.add_argument("--json", action="store_true", help="Print raw JSONL")
     p_watch.set_defaults(fn=cmd_watch)
+
+    p_wm = sub.add_parser(
+        "watch-messages",
+        help="Subscribe to the derived ClaudeMessage stream",
+    )
+    p_wm.add_argument(
+        "--from-start",
+        action="store_true",
+        help="Replay all sessions' transcripts from the beginning",
+    )
+    p_wm.add_argument(
+        "--json",
+        action="store_true",
+        help="Print one JSON line per message instead of pretty blocks",
+    )
+    p_wm.set_defaults(fn=cmd_watch_messages)
 
     p_bridge = sub.add_parser(
         "bridge", help="Bind decision.sock and answer PermissionRequests"
