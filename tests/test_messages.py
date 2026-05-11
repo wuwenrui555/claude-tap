@@ -17,6 +17,7 @@ import pytest
 
 from claude_tap.events import ClaudeInfo, Event, append_jsonl
 from claude_tap.messages import MessageStream
+from claude_tap.models import ClaudeMessage
 
 
 def _now_iso() -> str:
@@ -999,3 +1000,223 @@ async def test_message_stream_ignores_events_without_session_or_transcript(
     await asyncio.wait_for(consumer(), timeout=3.0)
     assert received[0].text == "hi"
     assert received[0].session_id == "sess-S"
+
+
+# ---------------------------------------------------------------------------
+# `source` field provenance — added in v0.2.1
+# ---------------------------------------------------------------------------
+
+
+def test_claude_message_default_source_is_transcript():
+    """A freshly-constructed ClaudeMessage with no source kwarg defaults
+    to ``"transcript"``. transcript.read_incremental relies on this so
+    it doesn't need to set the field at every call site."""
+    msg = ClaudeMessage(
+        session_id="S",
+        role="assistant",
+        content_type="text",
+        text="x",
+    )
+    assert msg.source == "transcript"
+
+
+@pytest.mark.asyncio
+async def test_user_prompt_submit_hook_emit_marks_source_hook(tmp_path: Path):
+    events_file = tmp_path / "events.jsonl"
+    transcript = tmp_path / "S.jsonl"
+    transcript.write_text("")
+
+    stream = MessageStream(events_path_=events_file, poll_interval=0.05)
+    received: list = []
+
+    async def consumer():
+        async for msg in stream:
+            received.append(msg)
+            if len(received) >= 1:
+                break
+
+    consumer_task = asyncio.create_task(consumer())
+    await asyncio.sleep(0.15)
+
+    append_jsonl(
+        events_file,
+        _ev(
+            "user_prompt_submit",
+            "sess-S",
+            str(transcript),
+            payload={"prompt": "hello"},
+        ),
+    )
+
+    await asyncio.wait_for(consumer_task, timeout=3.0)
+    assert received[0].role == "user"
+    assert received[0].text == "hello"
+    assert received[0].source == "hook"
+
+
+@pytest.mark.asyncio
+async def test_pre_tool_use_hook_emit_marks_source_hook(tmp_path: Path):
+    events_file = tmp_path / "events.jsonl"
+    transcript = tmp_path / "S.jsonl"
+    transcript.write_text("")
+
+    stream = MessageStream(events_path_=events_file, poll_interval=0.05)
+    received: list = []
+
+    async def consumer():
+        async for msg in stream:
+            received.append(msg)
+            if len(received) >= 1:
+                break
+
+    consumer_task = asyncio.create_task(consumer())
+    await asyncio.sleep(0.15)
+
+    append_jsonl(
+        events_file,
+        _ev(
+            "pre_tool_use",
+            "sess-S",
+            str(transcript),
+            payload={
+                "tool_name": "Bash",
+                "tool_input": {"command": "ls"},
+                "tool_use_id": "toolu_a",
+            },
+        ),
+    )
+
+    await asyncio.wait_for(consumer_task, timeout=3.0)
+    assert received[0].content_type == "tool_use"
+    assert received[0].source == "hook"
+
+
+@pytest.mark.asyncio
+async def test_pre_tool_use_exit_plan_mode_plan_text_marks_source_hook(
+    tmp_path: Path,
+):
+    events_file = tmp_path / "events.jsonl"
+    transcript = tmp_path / "S.jsonl"
+    transcript.write_text("")
+
+    stream = MessageStream(events_path_=events_file, poll_interval=0.05)
+    received: list = []
+
+    async def consumer():
+        async for msg in stream:
+            received.append(msg)
+            if len(received) >= 2:
+                break
+
+    consumer_task = asyncio.create_task(consumer())
+    await asyncio.sleep(0.15)
+
+    append_jsonl(
+        events_file,
+        _ev(
+            "pre_tool_use",
+            "sess-S",
+            str(transcript),
+            payload={
+                "tool_name": "ExitPlanMode",
+                "tool_input": {"plan": "step 1"},
+                "tool_use_id": "toolu_p",
+            },
+        ),
+    )
+
+    await asyncio.wait_for(consumer_task, timeout=3.0)
+    # First record: plan body (text). Second: the tool_use itself.
+    assert received[0].content_type == "text"
+    assert received[0].source == "hook"
+    assert received[1].content_type == "tool_use"
+    assert received[1].source == "hook"
+
+
+@pytest.mark.asyncio
+async def test_stop_final_reply_marks_source_hook(tmp_path: Path):
+    events_file = tmp_path / "events.jsonl"
+    transcript = tmp_path / "S.jsonl"
+    transcript.write_text("")
+
+    stream = MessageStream(events_path_=events_file, poll_interval=0.05)
+    received: list = []
+
+    async def consumer():
+        async for msg in stream:
+            received.append(msg)
+            if len(received) >= 1:
+                break
+
+    consumer_task = asyncio.create_task(consumer())
+    await asyncio.sleep(0.15)
+
+    append_jsonl(
+        events_file,
+        _ev(
+            "stop",
+            "sess-S",
+            str(transcript),
+            payload={"last_assistant_message": "all done"},
+        ),
+    )
+
+    await asyncio.wait_for(consumer_task, timeout=3.0)
+    assert received[0].role == "assistant"
+    assert received[0].text == "all done"
+    assert received[0].source == "hook"
+
+
+@pytest.mark.asyncio
+async def test_mid_turn_text_from_transcript_marks_source_transcript(tmp_path: Path):
+    """Mid-turn assistant text comes from transcript and must be flagged so.
+
+    This is the consumer-side discriminator for "is this a final reply or
+    mid-turn narration?": role=assistant + content_type=text + source=transcript
+    is mid-turn; source=hook is final reply.
+    """
+    events_file = tmp_path / "events.jsonl"
+    transcript = tmp_path / "S.jsonl"
+    transcript.write_text("")
+
+    stream = MessageStream(events_path_=events_file, poll_interval=0.05)
+    received: list = []
+
+    async def consumer():
+        async for msg in stream:
+            received.append(msg)
+            if len(received) >= 2:
+                break
+
+    consumer_task = asyncio.create_task(consumer())
+    await asyncio.sleep(0.15)
+
+    with transcript.open("a") as f:
+        f.write(_transcript_line(_assistant_text("let me look first")))
+        f.write(
+            _transcript_line(
+                _assistant_tool_use("toolu_y", "Read", {"file_path": "y.py"})
+            )
+        )
+    append_jsonl(
+        events_file,
+        _ev(
+            "pre_tool_use",
+            "sess-S",
+            str(transcript),
+            payload={
+                "tool_name": "Read",
+                "tool_input": {"file_path": "y.py"},
+                "tool_use_id": "toolu_y",
+            },
+        ),
+    )
+
+    await asyncio.wait_for(consumer_task, timeout=3.0)
+    # received[0] = transcript mid-turn text
+    # received[1] = hook tool_use (from pre_tool_use payload)
+    assert received[0].content_type == "text"
+    assert received[0].text == "let me look first"
+    assert received[0].source == "transcript"
+    assert received[1].content_type == "tool_use"
+    assert received[1].source == "hook"
