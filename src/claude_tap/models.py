@@ -43,3 +43,12 @@ class ClaudeMessage:
     # tmux or no event has been observed yet.
     tmux_session_name: str | None = None
     tmux_window_id: str | None = None
+    # Where this record came from. "hook" = built directly from a
+    # claude-tap hook payload (user_prompt_submit, pre_tool_use,
+    # stop.last_assistant_message); "transcript" = parsed from the
+    # session's transcript JSONL by `transcript.read_incremental`.
+    # Consumers can use this to distinguish, e.g., a final-reply
+    # assistant text (always "hook" after dedup) from a mid-turn
+    # assistant text (always "transcript", since hooks never carry
+    # mid-turn text).
+    source: Literal["hook", "transcript"] = "transcript"
